@@ -13,3 +13,12 @@ def migrate(cr, version):
     )
     if view:
         view.unlink()
+        
+    view = env.ref(
+        "account_ux.view_account_payment_tree",
+        raise_if_not_found=False,
+    )
+    if view:
+        view.unlink()
+
+        
