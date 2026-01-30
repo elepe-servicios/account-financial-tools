@@ -10,14 +10,18 @@ msgstr ""
 "Project-Id-Version: Odoo Server 19.0+e\n"
 "Report-Msgid-Bugs-To: \n"
 "POT-Creation-Date: 2025-11-17 21:28+0000\n"
-"PO-Revision-Date: 2025-11-17 21:28+0000\n"
-"Last-Translator: ADHOC - Bot <transbot@adhoc.com.ar>, 2025\n"
-"Language-Team: Spanish (https://app.transifex.com/adhoc/teams/46451/es/)\n"
+"PO-Revision-Date: 2025-12-18 18:10+0000\n"
+"Last-Translator: carla spiaggi <sca@adhoc.inc>\n"
+"Language-Team: Spanish <https://translation.dev-adhoc.com/projects/"
+"account-financial-tools-19-0/account-financial-tools-19-0-account_interests/"
+"es/>\n"
+"Language: es\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: \n"
-"Language: es\n"
-"Plural-Forms: nplurals=3; plural=n == 1 ? 0 : n != 0 && n % 1000000 == 0 ? 1 : 2;\n"
+"Plural-Forms: nplurals=3; plural=(n == 1) ? 0 : ((n != 0 && n % 1000000 == 0)"
+" ? 1 : 2);\n"
+"X-Generator: Weblate 5.10.4\n"
 
 #. module: account_interests
 #: model:ir.model,name:account_interests.model_res_company_interest
@@ -47,7 +51,7 @@ msgstr "Validación Automática de Factura?"
 #. module: account_interests
 #: model_terms:ir.ui.view,arch_db:account_interests.view_res_company_interest_filter
 msgid "Automatic Validation"
-msgstr ""
+msgstr "Validación automática"
 
 #. module: account_interests
 #: model:ir.model.fields,field_description:account_interests.field_res_company_interest__automatic_validation
@@ -57,17 +61,17 @@ msgstr "Validación Automática?"
 #. module: account_interests
 #: model:ir.model.fields,field_description:account_interests.field_res_company_interest__bypass_company_interest
 msgid "Bypass Company Interest"
-msgstr ""
+msgstr "Evitar el interés de la empresa"
 
 #. module: account_interests
 #: model:ir.model.fields,help:account_interests.field_res_company_interest__bypass_company_interest
 msgid "Bypass the company interest calculation"
-msgstr ""
+msgstr "Evitar el cálculo de los intereses de la empresa"
 
 #. module: account_interests
 #: model:ir.model.fields,field_description:account_interests.field_res_company_interest__company_id
 msgid "Company"
-msgstr "Compañía"
+msgstr "Empresa"
 
 #. module: account_interests
 #: model_terms:ir.actions.act_window,help:account_interests.action_res_company_interest
@@ -76,6 +80,12 @@ msgid ""
 "                overdue receivables. Specify interest rates, recurrence intervals,\n"
 "                and additional filters to customize the interest calculation process."
 msgstr ""
+"Configure el cálculo automático de intereses para cada empresa en función "
+"de\n"
+"                las cuentas por cobrar vencidas. Especifique las tasas de "
+"interés, los intervalos de recurrencia,\n"
+"                y filtros adicionales para personalizar el proceso de "
+"cálculo de intereses."
 
 #. module: account_interests
 #: model:ir.actions.server,name:account_interests.cron_recurring_interests_invoices_ir_actions_server
@@ -95,7 +105,7 @@ msgstr "Creado en"
 #. module: account_interests
 #: model:ir.model.fields,field_description:account_interests.field_res_company_interest__receivable_account_ids
 msgid "Cuentas a Cobrar"
-msgstr ""
+msgstr "Cuentas a Cobrar"
 
 #. module: account_interests
 #: model:ir.model.fields,help:account_interests.field_res_company_interest__receivable_account_ids
@@ -117,13 +127,13 @@ msgstr "Día(s)"
 #. module: account_interests
 #: model_terms:ir.actions.act_window,help:account_interests.action_res_company_interest
 msgid "Define interest configuration for overdue payments"
-msgstr ""
+msgstr "Definir la configuración de intereses para pagos vencidos"
 
 #. module: account_interests
 #. odoo-python
 #: code:addons/account_interests/models/res_company_interest.py:0
 msgid "Deuda Vencida al %s con tasa de interés de %s"
-msgstr ""
+msgstr "Deuda Vencida al %s con tasa de interés de %s"
 
 #. module: account_interests
 #. odoo-python
@@ -132,11 +142,13 @@ msgid ""
 "Deuda Vencida al %s de periodos anteriores con tasa de interés de %s. Deuda "
 "Vencida al %s del ultimo periodo con tasa de interés de %s"
 msgstr ""
+"Deuda Vencida al %s de periodos anteriores con tasa de interés de %s. Deuda "
+"Vencida al %s del ultimo periodo con tasa de interés de %s"
 
 #. module: account_interests
 #: model:ir.model.fields,field_description:account_interests.field_res_company_interest__display_name
 msgid "Display Name"
-msgstr "Nombre a Mostrar"
+msgstr "Nombre para mostrar"
 
 #. module: account_interests
 #: model:ir.model.fields,help:account_interests.field_res_company_interest__domain
@@ -156,7 +168,7 @@ msgstr "Tiene Dominio"
 #. module: account_interests
 #: model:ir.model.fields,field_description:account_interests.field_res_company_interest__id
 msgid "ID"
-msgstr ""
+msgstr "ID (identificación)"
 
 #. module: account_interests
 #: model:ir.model.fields,help:account_interests.field_res_company_interest__late_payment_interest
@@ -188,7 +200,7 @@ msgstr ""
 #: model_terms:ir.ui.view,arch_db:account_interests.view_res_company_interest_form
 #: model_terms:ir.ui.view,arch_db:account_interests.view_res_company_interest_list
 msgid "Interest Configuration"
-msgstr ""
+msgstr "Configuración de intereses"
 
 #. module: account_interests
 #: model:ir.model.fields,field_description:account_interests.field_res_company_interest__interest_product_id
@@ -240,12 +252,12 @@ msgstr "Última actualización realizada por"
 #. module: account_interests
 #: model:ir.model.fields,field_description:account_interests.field_res_company_interest__write_date
 msgid "Last Updated on"
-msgstr "Última Actualización en"
+msgstr "Última actualización el"
 
 #. module: account_interests
 #: model_terms:ir.ui.view,arch_db:account_interests.view_res_company_interest_filter
 msgid "Manual Validation"
-msgstr ""
+msgstr "Validación manual"
 
 #. module: account_interests
 #: model:ir.model.fields.selection,name:account_interests.selection__res_company_interest__rule_type__monthly
@@ -270,7 +282,7 @@ msgstr "Repetir cada (Día/Semana/Mes/Año)"
 #. module: account_interests
 #: model_terms:ir.ui.view,arch_db:account_interests.view_res_company_interest_filter
 msgid "Search Interest Configuration"
-msgstr ""
+msgstr "Buscar configuración de intereses"
 
 #. module: account_interests
 #: model:ir.model.fields,field_description:account_interests.field_res_company_interest__past_due_rate
@@ -283,6 +295,8 @@ msgstr "Interés al vencimiento subsiguiente"
 msgid ""
 "We couldn't run interest invoices cron job in the company: %s, Error: %s"
 msgstr ""
+"No pudimos ejecutar la acción planificada de facturas de intereses en la "
+"empresa: %s, Error: %s"
 
 #. module: account_interests
 #. odoo-python

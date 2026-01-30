@@ -10,14 +10,18 @@ msgstr ""
 "Project-Id-Version: Odoo Server 19.0+e\n"
 "Report-Msgid-Bugs-To: \n"
 "POT-Creation-Date: 2025-11-26 00:21+0000\n"
-"PO-Revision-Date: 2025-11-26 00:19+0000\n"
-"Last-Translator: ADHOC - Bot <transbot@adhoc.com.ar>, 2025\n"
-"Language-Team: Spanish (https://app.transifex.com/adhoc/teams/46451/es/)\n"
+"PO-Revision-Date: 2025-12-22 15:10+0000\n"
+"Last-Translator: carla spiaggi <sca@adhoc.inc>\n"
+"Language-Team: Spanish <https://translation.dev-adhoc.com/projects/"
+"account-financial-tools-19-0/"
+"account-financial-tools-19-0-account_journal_security/es/>\n"
+"Language: es\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: \n"
-"Language: es\n"
-"Plural-Forms: nplurals=3; plural=n == 1 ? 0 : n != 0 && n % 1000000 == 0 ? 1 : 2;\n"
+"Plural-Forms: nplurals=3; plural=(n == 1) ? 0 : ((n != 0 && n % 1000000 == 0)"
+" ? 1 : 2);\n"
+"X-Generator: Weblate 5.10.4\n"
 
 #. module: account_journal_security
 #: model_terms:ir.ui.view,arch_db:account_journal_security.view_journal_security_account_journal_form
@@ -26,6 +30,9 @@ msgid ""
 "facturas, pagos, asientos, apuntes contables ni ninguna información "
 "relacionada a este diario en el sistema."
 msgstr ""
+"<b>IMPORTANTE:</b> Los usuarios que no estén en la lista no podrán ver "
+"facturas, pagos, asientos, apuntes contables ni ninguna información "
+"relacionada a este diario en el sistema."
 
 #. module: account_journal_security
 #: model:ir.model.fields,field_description:account_journal_security.field_account_journal__display_name
@@ -39,7 +46,7 @@ msgstr "Nombre para mostrar"
 #: model:ir.model.fields,field_description:account_journal_security.field_account_move__id
 #: model:ir.model.fields,field_description:account_journal_security.field_res_users__id
 msgid "ID"
-msgstr ""
+msgstr "ID (identificación)"
 
 #. module: account_journal_security
 #: model:ir.model.fields,help:account_journal_security.field_account_journal__modification_user_ids
@@ -76,12 +83,12 @@ msgstr "Asiento contable"
 #. module: account_journal_security
 #: model:ir.model.fields.selection,name:account_journal_security.selection__account_journal__journal_restriction__modification
 msgid "Modificacion"
-msgstr ""
+msgstr "Modificación"
 
 #. module: account_journal_security
 #: model:ir.model.fields,field_description:account_journal_security.field_res_users__modification_journal_ids
 msgid "Modification Journals"
-msgstr "Diarios de modificacion"
+msgstr "Diarios de modificación"
 
 #. module: account_journal_security
 #: model:ir.model.fields,field_description:account_journal_security.field_account_journal__modification_user_ids
@@ -91,7 +98,7 @@ msgstr "Modificaciones permitidas a:"
 #. module: account_journal_security
 #: model:ir.model.fields.selection,name:account_journal_security.selection__account_journal__journal_restriction__none
 msgid "Ninguna"
-msgstr ""
+msgstr "Ninguna"
 
 #. module: account_journal_security
 #. odoo-python
@@ -100,6 +107,8 @@ msgid ""
 "No puede restringir el diario \"%s\" a usuarios sin inclurise a usted mismo "
 "ya que dejaria de ver este diario"
 msgstr ""
+"No puede restringir el diario \"%s\" a usuarios sin inclurise a usted mismo "
+"ya que dejaria de ver este diario"
 
 #. module: account_journal_security
 #. odoo-python
@@ -120,7 +129,7 @@ msgstr "Diarios Restringidos (Total)"
 #. module: account_journal_security
 #: model_terms:ir.ui.view,arch_db:account_journal_security.view_journal_security_account_journal_form
 msgid "Restringir a Usuarios"
-msgstr ""
+msgstr "Restringir a Usuarios"
 
 #. module: account_journal_security
 #: model:ir.model.fields,field_description:account_journal_security.field_account_journal__journal_restriction
@@ -130,7 +139,7 @@ msgstr "Tipo de Restricción"
 #. module: account_journal_security
 #: model:ir.model.fields.selection,name:account_journal_security.selection__account_journal__journal_restriction__total
 msgid "Total"
-msgstr ""
+msgstr "Total"
 
 #. module: account_journal_security
 #: model:ir.model.fields,field_description:account_journal_security.field_account_journal__user_ids
