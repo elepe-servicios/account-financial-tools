@@ -96,11 +96,6 @@ msgid "Average Price in the company's currency where it is set"
 msgstr ""
 
 #. module: account_ux
-#: model:ir.model.fields,field_description:account_ux.field_account_journal__branch_order
-msgid "Branch Order"
-msgstr ""
-
-#. module: account_ux
 #: model_terms:ir.ui.view,arch_db:account_ux.view_account_change_currency
 #: model_terms:ir.ui.view,arch_db:account_ux.view_account_move_change_rate
 msgid "Cancel"
@@ -463,13 +458,6 @@ msgstr ""
 #. odoo-python
 #: code:addons/account_ux/models/account_move.py:0
 msgid "Please check the email template associated with the invoice journal."
-msgstr ""
-
-#. module: account_ux
-#: model:ir.model.fields,help:account_ux.field_account_journal__branch_order
-msgid ""
-"Priority sequence for branches. Low number if I am a branch, high number if "
-"I am a parent"
 msgstr ""
 
 #. module: account_ux
