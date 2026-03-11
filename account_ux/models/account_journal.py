@@ -53,15 +53,32 @@ class AccountJournal(models.Model):
             self.shared_to_branches = True
 
     def _check_company_domain(self, companies) -> Domain:
-        """TODO"""
+        """
+        Returns a domain to filter records by company, including parent companies
+        that have journals shared to branches.
+        
+        This method returns a domain based only on company_id to ensure compatibility
+        with other models that don't have the shared_to_branches field.
+        """
         if isinstance(companies, unquote):
-            companies = unquote(f"{companies}")
-        else:
-            companies = models.to_record_ids(companies)
-        domain = Domain("company_id", "in", companies) | Domain(
-            [("company_id", "parent_of", companies), ("shared_to_branches", "=", True)]
-        )
-        return domain
+            # Dynamic domain case (used in XML views)
+            return Domain("company_id", "in", unquote(f"{companies}")) | Domain(
+                "company_id.child_ids", "in", unquote(f"{companies}")
+            )
+        
+        company_ids = models.to_record_ids(companies)
+        
+        # Get parent companies that have journals shared to branches
+        shared_parent_ids = self.sudo().search([
+            ("company_id", "parent_of", company_ids),
+            ("company_id", "not in", company_ids),
+            ("shared_to_branches", "=", True),
+        ]).company_id.ids
+        
+        # Combine original company_ids with parent company_ids that share journals
+        all_company_ids = list(set(company_ids + shared_parent_ids))
+        
+        return Domain("company_id", "in", all_company_ids)
 
     def write(self, vals):
         """We need to allow to change to False the value for restricted for hash for the journal when this value is setted."""
