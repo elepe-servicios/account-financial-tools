@@ -16,7 +16,7 @@ class TestActualizacionImpuestoFacturaPosteada(TransactionCase):
         self.company = self.env.ref("base.main_company")
 
         # Sin datos demo la compañía puede no tener plan de cuentas; lo cargamos si hace falta.
-        if not self.env["account.account"].search_count([("company_id", "=", self.company.id)]):
+        if not self.env["account.account"].search_count([("company_ids", "in", self.company.id)]):
             self.env["account.chart.template"].try_loading(False, company=self.company)
 
         # Crear impuesto fijo de $1.00
