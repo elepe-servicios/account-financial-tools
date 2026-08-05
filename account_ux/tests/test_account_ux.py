@@ -7,13 +7,24 @@ class TestAccountUXChangeCurrency(common.TransactionCase):
         super().setUp()
         self.today = fields.Date.today()
         self.company_usd = self.env.ref("base.main_company")
-        self.partner = self.env.ref("base.res_partner_12")
+
+        # Sin datos demo la compañía puede no tener plan de cuentas; lo cargamos si hace falta.
+        if not self.env["account.account"].search_count([("company_id", "=", self.company_usd.id)]):
+            self.env["account.chart.template"].try_loading(False, company=self.company_usd)
+
+        self.partner = self.env["res.partner"].create({"name": "Test Partner Account UX"})
 
         self.currency_usd = self.env.ref("base.USD")
         self.currency_ars = self.env.ref("base.ARS")
         self.currency_ars.write({"active": True})
 
-        self.journal_usd = self.env.ref("account.1_sale")
+        self.product = self.env["product.product"].create(
+            {"name": "Test Product Account UX", "list_price": 1000.0}
+        )
+
+        self.journal_usd = self.env["account.journal"].search(
+            [("type", "=", "sale"), ("company_id", "=", self.company_usd.id)], limit=1
+        )
 
         self.journal_ars = self.journal_usd.copy()
 
@@ -30,7 +41,7 @@ class TestAccountUXChangeCurrency(common.TransactionCase):
                 "invoice_line_ids": [
                     Command.create(
                         {
-                            "product_id": self.env.ref("product.product_product_16").id,
+                            "product_id": self.product.id,
                             "quantity": 1,
                             "price_unit": 1000,
                         }
