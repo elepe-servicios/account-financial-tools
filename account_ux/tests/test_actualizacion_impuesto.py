@@ -15,6 +15,10 @@ class TestActualizacionImpuestoFacturaPosteada(TransactionCase):
         # Configurar compañía
         self.company = self.env.ref("base.main_company")
 
+        # Sin datos demo la compañía puede no tener plan de cuentas; lo cargamos si hace falta.
+        if not self.env["account.account"].search_count([("company_id", "=", self.company.id)]):
+            self.env["account.chart.template"].try_loading(False, company=self.company)
+
         # Crear impuesto fijo de $1.00
         self.impuesto_fijo_test = self.env["account.tax"].create(
             {
@@ -33,7 +37,7 @@ class TestActualizacionImpuestoFacturaPosteada(TransactionCase):
         )
 
         # Obtener proveedor de prueba
-        self.proveedor = self.env.ref("base.res_partner_12")
+        self.proveedor = self.env["res.partner"].create({"name": "Proveedor Test Actualizacion Impuesto"})
 
         # Obtener diario de compras de la compañía
         self.diario_compras = self.env["account.journal"].search(
