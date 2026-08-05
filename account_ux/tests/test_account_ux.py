@@ -9,7 +9,7 @@ class TestAccountUXChangeCurrency(common.TransactionCase):
         self.company_usd = self.env.ref("base.main_company")
 
         # Sin datos demo la compañía puede no tener plan de cuentas; lo cargamos si hace falta.
-        if not self.env["account.account"].search_count([("company_id", "=", self.company_usd.id)]):
+        if not self.env["account.account"].search_count([("company_ids", "in", self.company_usd.id)]):
             self.env["account.chart.template"].try_loading(False, company=self.company_usd)
 
         self.partner = self.env["res.partner"].create({"name": "Test Partner Account UX"})
