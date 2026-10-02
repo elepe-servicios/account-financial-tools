@@ -3,12 +3,15 @@
 # directory
 ##############################################################################
 from odoo import _, api, fields, models, tools
+from odoo.exceptions import ValidationError
 from odoo.fields import Domain
-from odoo.tools.misc import unquote
+from odoo.tools.safe_eval import safe_eval
 
 
 class AccountJournal(models.Model):
-    _inherit = "account.journal"
+    _name = "account.journal"
+    _inherit = ["account.journal", "shared.to.branches.mixin"]
+    _order = "branch_order,sequence, type, code"
 
     mail_template_id = fields.Many2one(
         "mail.template",
@@ -17,24 +20,55 @@ class AccountJournal(models.Model):
         help="If set an email will be sent to the customer after the invoices"
         " related to this journal has been validated.",
     )
-    shared_to_branches = fields.Boolean(
+    # Redeclared to keep the scope following the journal type, which is this model's own
+    # rule and not something the mixin can know. Selection, string and help come from it.
+    shared_to_branches = fields.Selection(
         compute="_compute_shared_to_branches",
         store=True,
         readonly=False,
-        help="If enabled, this journal will be available for use in child "
-        "companies (branches). This allows subsidiaries to use the parent "
-        "company's journals for their transactions.",
     )
-    has_child_companies = fields.Boolean(compute="_compute_has_child_companies")
+    branch_order = fields.Integer(
+        compute="_compute_branch_order",
+        store=True,
+        help="Priority sequence for branches. Low number if I am a branch, high number if I am a parent",
+    )
 
-    @api.depends("company_id", "company_id.child_ids")
-    def _compute_has_child_companies(self):
+    show_warning_shared_to_branches = fields.Boolean(compute="_compute_show_warning_shared_to_branches")
+
+    @api.depends(
+        "company_id",
+        "company_id.child_ids",
+        "company_id.child_ids.active",
+        "company_id.parent_id",
+    )
+    def _compute_branch_order(self):
         for journal in self:
-            journal.has_child_companies = bool(journal.company_id.child_ids)
+            # Only active children count: an archived branch must not keep its
+            # parent in the "parent company" tier. We filter on active instead of
+            # relying on active_test because this field is stored, so its value
+            # cannot depend on the context of whoever triggers the recompute.
+            children = journal.company_id.child_ids.filtered("active")
+            # Calculate the leves of the child hierarchy
+            level = 0
+            companies_to_check = children
+            while companies_to_check:
+                level += 10
+                # Get all children of the next level
+                companies_to_check = companies_to_check.mapped("child_ids").filtered("active")
+
+            if children:
+                # If it has children, the base value is 100 plus level
+                journal.branch_order = 100 + level
+            elif journal.company_id.parent_id:
+                # If it's a branch (has a parent), low value
+                journal.branch_order = 100
+            else:
+                # If it has neither parent nor children, base value
+                journal.branch_order = 10
 
     @api.onchange("shared_to_branches")
     def _onchange_shared_to_branches(self):
-        if self.type == "sale" and self.shared_to_branches:
+        if self.type == "sale" and self.shared_to_branches in ["all", "legal_entity"]:
             return {
                 "warning": {
                     "title": _("Warning!"),
@@ -44,51 +78,70 @@ class AccountJournal(models.Model):
 
     @api.depends("type")
     def _compute_shared_to_branches(self):
-        shared = self.filtered(lambda j: j.type in ["general", "purchase"])
-        shared.shared_to_branches = True
-        (self - shared).shared_to_branches = False
+        """Miscellaneous and purchase journals are shared, the rest are not.
 
-        # In case of test environment, share all journals to branches
-        if tools.config["test_enable"]:
-            self.shared_to_branches = True
+        Kept at *all branches* and not at *same legal entity* so that no live database
+        changes behaviour when the field stops being a boolean. Narrowing this default is a
+        product decision, not part of turning the flag into a scope.
+        """
+        shared = self.filtered(lambda j: j.type in ["general", "purchase"])
+        shared.shared_to_branches = "all"
+        (self - shared).shared_to_branches = "none"
+
+        # In case of test environment (but not demo data loading), share all journals to branches
+        if tools.config["test_enable"] and not self.env.context.get("demo"):
+            self.shared_to_branches = "all"
 
     def _check_company_domain(self, companies) -> Domain:
-        """
-        Returns a domain to filter records by company, including parent companies
-        that have journals shared to branches.
-        
-        This method returns a domain based only on company_id to ensure compatibility
-        with other models that don't have the shared_to_branches field.
-        """
-        if isinstance(companies, unquote):
-            # Dynamic domain case (used in XML views)
-            return Domain("company_id", "in", unquote(f"{companies}")) | Domain(
-                "company_id.child_ids", "in", unquote(f"{companies}")
-            )
-        
-        company_ids = models.to_record_ids(companies)
-        
-        # Get parent companies that have journals shared to branches
-        shared_parent_ids = self.sudo().search([
-            ("company_id", "parent_of", company_ids),
-            ("company_id", "not in", company_ids),
-            ("shared_to_branches", "=", True),
-        ]).company_id.ids
-        
-        # Combine original company_ids with parent company_ids that share journals
-        all_company_ids = list(set(company_ids + shared_parent_ids))
-        
-        return Domain("company_id", "in", all_company_ids)
+        """A branch can use its ancestors' journals as far as they are shared to it.
 
-    def write(self, vals):
-        """We need to allow to change to False the value for restricted for hash for the journal when this value is setted."""
-        if "restrict_mode_hash_table" in vals and not vals.get("restrict_mode_hash_table"):
-            restrict_mode_hash_table = vals.get("restrict_mode_hash_table")
-            vals.pop("restrict_mode_hash_table")
-            res = super().write(vals)
-            self._write({"restrict_mode_hash_table": restrict_mode_hash_table})
-            return res
-        return super().write(vals)
+        Native ``check_company_domain_parent_of`` shares every ancestor journal with the
+        whole subtree. The scope of the sharing lives in ``shared.to.branches.mixin``,
+        together with the record rule that has to say the same thing — see
+        ``account.journal_comp_rule`` in ``account_ux_security.xml``.
+        """
+        return self._shared_to_branches_domain(companies)
+
+    @api.constrains(
+        "suspense_account_id",
+        "inbound_payment_method_line_ids",
+        "outbound_payment_method_line_ids",
+    )
+    def _check_suspense_account_not_outstanding(self):
+        """La cuenta transitoria (suspense) del diario no puede coincidir con una
+        cuenta de pagos/cobros pendientes (outstanding).
+
+        Si coinciden, el widget de conciliación bancaria nunca habilita "Validar":
+        ``bank.rec.widget._compute_state`` deja ``state='invalid'`` mientras la cuenta
+        transitoria siga presente en las líneas, y al conciliar contra un pago cuya
+        contrapartida está en esa misma cuenta, la transitoria nunca sale. El botón
+        queda gris sin mensaje que lo explique. Bloqueamos la configuración de raíz.
+
+        Se puede saltear pasando ``skip_suspense_outstanding_check`` en el contexto. Es
+        para el módulo que crea un diario en su instalación y arma sus cuentas en varios
+        pasos dentro de la misma transacción: ahí un estado intermedio puede coincidir y
+        haría fallar el install entero, mientras que la configuración final es válida. La
+        edición manual del diario nunca lleva ese contexto, así que sigue validada.
+        """
+        if self.env.context.get("skip_suspense_outstanding_check"):
+            return
+        for journal in self:
+            suspense = journal.suspense_account_id
+            if not suspense:
+                continue
+            outstanding_accounts = (
+                journal.inbound_payment_method_line_ids | journal.outbound_payment_method_line_ids
+            ).payment_account_id
+            if suspense in outstanding_accounts:
+                raise ValidationError(
+                    _(
+                        "En el diario «%(journal)s» la cuenta transitoria (%(account)s) no puede ser la "
+                        "misma que una cuenta de pagos/cobros pendientes (outstanding). Si lo son, no vas a "
+                        "poder validar las conciliaciones bancarias contra esos pagos. Configurá cuentas distintas.",
+                        journal=journal.display_name,
+                        account=suspense.display_name,
+                    )
+                )
 
     @api.depends("type")
     def _compute_payment_sequence(self):
@@ -96,6 +149,12 @@ class AccountJournal(models.Model):
         super()._compute_payment_sequence()
         for journal in self:
             journal.payment_sequence = False
+
+    def _compute_show_warning_shared_to_branches(self):
+        for journal in self:
+            journal.show_warning_shared_to_branches = (
+                journal.type in ["sale", "purchase"] and not journal.company_id.vat and journal.l10n_latam_use_documents
+            )
 
     @api.model
     def _fill_missing_values(self, vals, protected_codes=False):
@@ -106,3 +165,12 @@ class AccountJournal(models.Model):
                 default_account_id = self._create_default_account(company, journal_type, vals)
                 vals["default_account_id"] = default_account_id
         super()._fill_missing_values(vals, protected_codes=protected_codes)
+
+    def open_invalid_statements_action(self):
+        self.ensure_one()
+        res = super().open_invalid_statements_action()
+        domain = res["domain"]
+        if isinstance(domain, str):
+            domain = safe_eval(domain)
+        res["domain"] = domain + [("journal_id", "=", self.id)]
+        return res

@@ -1,15 +1,40 @@
 # flake8: noqa
 import json
 import base64
-from odoo import models, api, fields, _
-from odoo.exceptions import UserError
+
+from odoo import models, api, fields, _, Command
+from odoo.exceptions import UserError, AccessError
 
 
 class AccountMove(models.Model):
     _inherit = "account.move"
 
     internal_notes = fields.Html()
-    inverse_invoice_currency_rate = fields.Float(compute="_compute_inverse_invoice_currency_rate")
+    inverse_invoice_currency_rate = fields.Float(
+        compute="_compute_inverse_invoice_currency_rate", inverse="_inverse_inverse_invoice_currency_rate"
+    )
+
+    @api.depends("invoice_currency_rate")
+    def _compute_inverse_invoice_currency_rate(self):
+        for rec in self:
+            rec.inverse_invoice_currency_rate = 1.0 / rec.invoice_currency_rate if rec.invoice_currency_rate else 1.0
+
+    def _inverse_inverse_invoice_currency_rate(self):
+        for rec in self:
+            if rec.inverse_invoice_currency_rate is not None:
+                if rec.inverse_invoice_currency_rate != 0:
+                    if rec.invoice_currency_rate:
+                        previous_rate = 1.0 / rec.invoice_currency_rate
+                        if previous_rate != rec.inverse_invoice_currency_rate:  # Verificar si realmente cambió
+                            rec.message_post(
+                                body=_("Invoice currency rate changed from %s to %s")
+                                % (previous_rate, rec.inverse_invoice_currency_rate)
+                            )
+                    rec.invoice_currency_rate = 1.0 / rec.inverse_invoice_currency_rate
+                else:
+                    raise UserError(_("Currency rate cannot be set to zero."))
+
+    fiscal_position_id = fields.Many2one(tracking=True)
 
     def get_invoice_report(self):
         self.ensure_one()
@@ -22,47 +47,88 @@ class AccountMove(models.Model):
 
     def action_post(self):
         """After validate invoice will sent an email to the partner if the related journal has mail_template_id set"""
-        # Use action_post to ensure the mail is sent only when the move is posted
+        # Use action_post to ensure the mail is sent only when the move is posted. The massive
+        # confirmation wizard does not go through here, it is handled on validate.account.move
+        # The posting resets background_post, so we take note of the deferred ones beforehand. We
+        # pass them on the context because other modules extend action_send_invoice_mail and
+        # changing its signature would break them
+        deferred = self.filtered("background_post")
         res = super().action_post()
-        self.action_send_invoice_mail()
+        self.with_context(deferred_invoice_mail_ids=deferred.ids).action_send_invoice_mail()
         return res
 
+    def _post(self, soft=True):
+        # Refresh the currency rate if no invoice date is set and the currency is different from company currency
+        for move in self:
+            if not move.invoice_date and move.currency_id != move.company_id.currency_id:
+                move.refresh_invoice_currency_rate()
+        return super()._post(soft=soft)
+
     def action_send_invoice_mail(self):
-        for rec in self.filtered(lambda x: x.is_invoice(include_receipts=True) and x.journal_id.mail_template_id):
-            if rec.partner_id.email:
+        """Envía la factura con la plantilla del diario cuando se confirma.
+
+        El envío es sincrónico para que el mail salga en el momento y la factura no quede
+        esperando al cron nativo, que corre una vez por día.
+
+        No se envían en el momento las que ya vienen diferidas (lotes grandes que se postean en
+        background, para no cargar ese cron con la generación de los documentos) ni las que
+        quedan en borrador para postearse en su fecha (soft post). A esas les dejamos la data y
+        despertamos al cron nativo para que no esperen hasta el día siguiente.
+
+        Excluimos las ya enviadas para no reenviar, por ejemplo si la factura se vuelve a
+        borrador y se confirma de nuevo.
+
+        Las diferidas llegan en el contexto (`deferred_invoice_mail_ids`) y no por parámetro
+        porque otros módulos extienden este método y cambiarle la firma los rompe.
+        """
+        candidates = self.filtered(
+            lambda x: x.is_sale_document(include_receipts=True) and x.journal_id.mail_template_id and not x.is_move_sent
+        )
+        # Si no hay email del partner, registramos un error en el chatter
+        without_email = candidates.filtered(lambda x: not x.partner_id.email)
+        for rec in without_email:
+            rec.message_post(
+                body=_(
+                    "<b>Error enviando la factura</b>: el partner %s no tiene una dirección de correo definida.",
+                    rec.partner_id.name,
+                ),
+                body_is_html=True,
+            )
+        to_send = candidates - without_email
+        # Las que quedaron en borrador para postearse en su fecha (soft post) todavía no se pueden
+        # enviar, y las diferidas las dejamos para el cron nativo así no lo hace el de background
+        deferred_ids = self.env.context.get("deferred_invoice_mail_ids") or []
+        to_defer = to_send.filtered(lambda x: x.state != "posted" or x.id in deferred_ids)
+        to_send -= to_defer
+        if to_defer:
+            to_defer.sending_data = {"author_partner_id": self.env.user.partner_id.id}
+            # El cron nativo corre una vez al día, lo despertamos para que salgan ahora
+            self.env.ref("account.ir_cron_account_move_send")._trigger()
+        if to_send:
+            # Hacemos el envío por move para que un problema de configuración de reportes en una
+            # factura no bloquee ni el envío de las demás ni la confirmación del lote completo.
+            for move in to_send:
                 try:
-                    rec.message_post_with_source(rec.journal_id.mail_template_id, subtype_xmlid="mail.mt_comment")
-                    rec.is_move_sent = True
-                except Exception as error:
-                    title = _("ERROR: Invoice was not sent via email")
-                    # message = _(
-                    #     "Invoice %s was correctly validate but was not send"
-                    #     " via email. Please review invoice chatter for more"
-                    #     " information" % rec.display_name
-                    # )
-                    # self.env.user.notify_warning(
-                    #     title=title,
-                    #     message=message,
-                    #     sticky=True,
-                    # )
-                    rec.message_post(
-                        body="<br/><br/>".join(
-                            [
-                                "<b>" + title + "</b>",
-                                _("Please check the email template associated with the invoice journal."),
-                                "<code>" + str(error) + "</code>",
-                            ]
+                    # allow_raising=False solo cubre errores en el proceso de envío propiamente
+                    # dicho; las validaciones iniciales (_check_sending_data) pueden levantar igual.
+                    self.env["account.move.send"]._generate_and_send_invoices(
+                        move, sending_methods=["email"], allow_raising=False
+                    )
+                except UserError as error:
+                    move.message_post(
+                        body=_(
+                            "<b>Error enviando la factura</b>: no se pudo generar el documento para enviar por email. "
+                            "Detalle: %s",
+                            error,
                         ),
                         body_is_html=True,
                     )
-            else:
-                rec.message_post(
-                    body=_(
-                        "<b>Error sending the invoice</b>: partner %s does not have an email address defined.",
-                        rec.partner_id.name,
-                    ),
-                    body_is_html=True,
-                )
+
+    def _get_mail_template(self):
+        res = super()._get_mail_template()
+        if self.journal_id.mail_template_id and not all(move.move_type in ("out_refund", "in_refund") for move in self):
+            res = self.journal_id.mail_template_id
+        return res
 
     @api.onchange("partner_id")
     def _onchange_partner_commercial(self):
@@ -71,6 +137,10 @@ class AccountMove(models.Model):
 
     def copy(self, default=None):
         res = super().copy(default=default)
+        for line_to_clean in res.mapped("line_ids").filtered(lambda x: False in x.mapped("tax_ids.active")):
+            line_to_clean.tax_ids = [
+                Command.unlink(x.id) for x in line_to_clean.tax_ids.filtered(lambda x: not x.active)
+            ]
         res._onchange_partner_commercial()
         return res
 
@@ -131,9 +201,11 @@ class AccountMove(models.Model):
     def _compute_invoice_date_due(self):
         """Si la factura no tiene término de pago y la misma tiene fecha de vencimiento anterior al día de hoy y la factura no tiene fecha entonces cuando se publica la factura, la fecha de vencimiento tiene que coincidir con la fecha de hoy."""
         invoices_with_old_data_due = self.filtered(
-            lambda x: x.invoice_date
-            and not x.invoice_payment_term_id
-            and (not x.invoice_date_due or x.invoice_date_due < x.invoice_date)
+            lambda x: (
+                x.invoice_date
+                and not x.invoice_payment_term_id
+                and (not x.invoice_date_due or x.invoice_date_due < x.invoice_date)
+            )
         )
         invoices = self - invoices_with_old_data_due
         for inv in invoices_with_old_data_due:
@@ -153,13 +225,6 @@ class AccountMove(models.Model):
                 error_msg += str(rec.date) + "\t" * 2 + str(rec.invoice_date) + "\t" * 3 + rec.display_name + "\n"
             raise UserError(_("The date and invoice date of a sale invoice must be the same: %s") % (error_msg))
 
-    @api.depends("invoice_currency_rate")
-    def _compute_inverse_invoice_currency_rate(self):
-        for record in self:
-            record.inverse_invoice_currency_rate = (
-                1 / record.invoice_currency_rate if record.invoice_currency_rate else 1.0
-            )
-
     @api.constrains("state")
     def _check_company_on_lines(self):
         """Odoo con check company no protege bien los "tax_ids" (m2m) ni el account_id porque se computa con sql para no tener dolores de cabeza hacemos check de
@@ -167,69 +232,55 @@ class AccountMove(models.Model):
 
         self.filtered(lambda x: x.state == "posted").mapped("line_ids")._check_company()
 
-    @api.depends()
-    def _compute_tax_totals(self):
-        super()._compute_tax_totals()
+    @api.model
+    def _cron_account_move_send(self, job_count=10):
+        # The _render_qweb_pdf_prepare_streams method does not correctly generate individual PDF streams when the PDF outlines are missing or invalid.
+        # so we set the limit into 1 in order to ensure that each PDF is generated separately.
+        # mention here https://github.com/odoo/odoo/pull/230813
+        # TODO v20: Check if we still need this workaround.
+        job_count = 1
+        super()._cron_account_move_send(job_count=job_count)
 
-        for move in self.filtered(lambda x: x.state == "posted"):
-            base_lines, _tax_lines = move._get_rounded_base_and_tax_lines()
+    @api.onchange("fiscal_position_id")
+    def _onchange_fiscal_position_id(self):
+        """
+        Hacemos similar a sale_ux, cambiar FP re-computa automáticamente impuestos.
+        No llamamos a action_update_fpos_values() porque hace más cosas y lo queremos matener mínimo similar a sale_ux
+        """
+        self.ensure_one()
+        lines_to_recompute = self.invoice_line_ids.filtered(
+            lambda line: line.display_type not in ("line_section", "line_note")
+        )
+        lines_to_recompute._compute_tax_ids()
 
-            # Detectar si hay impuestos inactivos en las líneas de impuestos
-            inactive_trl_ids = {
-                t["tax_repartition_line_id"].id
-                for t in _tax_lines
-                if t["tax_repartition_line_id"] and not t["tax_repartition_line_id"].tax_id.active
-            }
-            if not inactive_trl_ids:
-                continue
+    def action_open_automatic_entry_wizard(self):
+        """Opens the automatic entry wizard with the invoice lines"""
+        if not self.env.user.has_group("account.group_account_invoice"):
+            raise AccessError(
+                _(
+                    "You don't have the necessary permissions to transfer accounting entries. "
+                    "Please contact your system administrator."
+                )
+            )
 
-            move.tax_totals = self._replace_inactive_tax_amounts(move, _tax_lines, inactive_trl_ids)
+        # Support being called on multiple moves: gather lines from all selected moves
+        # Filter only payable/receivable account lines
+        filtered_lines = self.mapped("line_ids").filtered(
+            lambda line: line.account_id.account_type in ("asset_receivable", "liability_payable")
+        )
 
-    def _replace_inactive_tax_amounts(self, move, _tax_lines, inactive_trl_ids):
-        tax_totals = move.tax_totals
-        subtotal = tax_totals["subtotals"][0]
-        tax_groups = subtotal["tax_groups"]
+        if not filtered_lines:
+            raise UserError(_("No payable/receivable lines found for the selected moves."))
 
-        # 1. Acumular valores por tax_group
-        amounts_by_group = {}
-
-        for t in _tax_lines:
-            trl = t["tax_repartition_line_id"]
-            if not trl or trl.id not in inactive_trl_ids:
-                continue
-
-            group_id = trl.tax_id.tax_group_id.id
-            vals = amounts_by_group.setdefault(group_id, {"amount_currency": 0.0, "amount": 0.0})
-
-            vals["amount_currency"] += t["amount_currency"]
-            vals["amount"] += t["balance"]
-
-        if not amounts_by_group:
-            return tax_totals
-
-        # 2.Reemplazar valores en los tax_groups
-        for g in tax_groups:
-            group_id = g["id"]
-            if group_id in amounts_by_group:
-                vals = amounts_by_group[group_id]
-                g["tax_amount_currency"] = abs(vals["amount_currency"])
-                g["tax_amount"] = abs(vals["amount"])
-
-        # 3. Recalcular subtotales
-        subtotal["tax_amount_currency"] = sum(g["tax_amount_currency"] for g in tax_groups)
-        subtotal["tax_amount"] = sum(g["tax_amount"] for g in tax_groups)
-
-        # 4. Recalcular totales principales
-        tax_totals["tax_amount_currency"] = subtotal["tax_amount_currency"]
-        tax_totals["tax_amount"] = subtotal["tax_amount"]
-        tax_totals["total_amount_currency"] = tax_totals["base_amount_currency"] + subtotal["tax_amount_currency"]
-        tax_totals["total_amount"] = tax_totals["base_amount"] + subtotal["tax_amount"]
-
-        return tax_totals
-
-    def button_draft(self):
-        for move in self:
-            if move.inalterable_hash and not move.journal_id.restrict_mode_hash_table:
-                move.env.cr.execute("update account_move set inalterable_hash = null where id = %s", (move.id,))
-                move.invalidate_recordset(["inalterable_hash"])
-        return super().button_draft()
+        return {
+            "type": "ir.actions.act_window",
+            "name": _("Transfer Accounting Entries"),
+            "res_model": "account.automatic.entry.wizard",
+            "view_mode": "form",
+            "target": "new",
+            "context": {
+                "active_model": "account.move.line",
+                "active_ids": filtered_lines.ids,
+                "default_action": "change_partner",
+            },
+        }

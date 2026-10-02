@@ -3,10 +3,40 @@
 # License AGPL-3.0 or later (http://www.gnu.org/licenses/agpl).
 
 from odoo import models, fields, api
+from odoo.tools.misc import unquote
 
 
 class AccountMoveLine(models.Model):
     _inherit = "account.move.line"
+
+    @api.model
+    def _check_company_domain(self, companies):
+        """Let an entry line be used anywhere inside its legal entity, not only in its company.
+
+        Odoo's default for this model is the strict one —only the company that owns the
+        line— and it is symmetric: a payment of a branch cannot take a line of its parent,
+        and one of the parent cannot take a line of the branch. Since the debt of a legal
+        entity is collected from whichever of its companies actually collects it (the
+        receipt lists it and reconciles it, see ``account_payment_pro``), this check has
+        to answer with the same criterion as everything else: the legal entity.
+
+        What is relaxed is the boundary between the branches of one legal entity. Lines of
+        a company of **another** legal entity stay out, which is the guarantee this keeps —
+        and the reason this is not ``check_company_domain_parent_of``, the seam Odoo uses
+        for records shared down a tree: that one accepts the ancestors of the company and
+        nothing else, so the parent could not collect the debt of its own branch.
+        """
+        if not companies or isinstance(companies, str) or isinstance(companies, unquote):
+            return super()._check_company_domain(companies)
+
+        company_ids = models.to_record_ids(companies)
+        if not company_ids:
+            return super()._check_company_domain(companies)
+
+        legal_entity = self.env["res.company"].sudo().browse(company_ids)
+        for company in list(legal_entity):
+            legal_entity |= company._get_legal_entity_companies()
+        return super()._check_company_domain(legal_entity)
 
     user_id = fields.Many2one(
         string="Contact Salesperson",
@@ -101,25 +131,54 @@ class AccountMoveLine(models.Model):
                 res["partial_values"]["credit_amount_currency"] = credit_values["aml"].currency_id.round(
                     res["partial_values"]["credit_amount_currency"] * rate
                 )
+                # El residual que devuelve super quedó expresado en moneda de la compañía (por el shadow de
+                # arriba). Lo reexpresamos en la moneda secundaria real a la cotización del comprobante, igual
+                # que hacemos con el partial. Si no, el residual queda con el valor en moneda de compañía pero
+                # asociado a un apunte cuya currency_id es la secundaria, y cualquier consumidor del residual
+                # (ej. el wizard de conciliación / ajuste) lo interpreta como moneda secundaria sin convertir.
+                if res.get("credit_values"):
+                    res["credit_values"]["amount_residual_currency"] = credit_values["aml"].currency_id.round(
+                        res["credit_values"]["amount_residual"] * rate
+                    )
             if "original_currency" in debit_values:
                 debit_values["currency"] = debit_values["original_currency"]
                 rate = get_accounting_rate(debit_values)
-                res["partial_values"]["debit_amount_currency"] = credit_values["aml"].currency_id.round(
+                res["partial_values"]["debit_amount_currency"] = debit_values["aml"].currency_id.round(
                     res["partial_values"]["debit_amount_currency"] * rate
                 )
+                if res.get("debit_values"):
+                    res["debit_values"]["amount_residual_currency"] = debit_values["aml"].currency_id.round(
+                        res["debit_values"]["amount_residual"] * rate
+                    )
         return res
 
     def _compute_amount_residual(self):
         """Cuando se realiza un cobro de un recibo y el comprobante que se paga tiene moneda secundaria y queda totalmente conciliado en moneda de compañía pero no en moneda secundaria (ejemplo: diferencia de un centavo) lo que hacemos con este método es forzar que quede conciliado también en moneda secundaria."""
         super()._compute_amount_residual()
         need_amount_residual_currency_adjustment = self.filtered(
-            lambda x: not x.reconciled
-            and x.company_id.reconcile_on_company_currency
-            and (x.account_id.reconcile or x.account_id.account_type in ("asset_cash", "liability_credit_card"))
-            and (x.company_currency_id or self.env.company.currency_id).is_zero(x.amount_residual)
-            and not (x.currency_id or (x.company_currency_id or self.env.company.currency_id)).is_zero(
-                x.amount_residual_currency
+            lambda x: (
+                not x.reconciled
+                and x.company_id.reconcile_on_company_currency
+                and (x.account_id.reconcile or x.account_id.account_type in ("asset_cash", "liability_credit_card"))
+                and (x.company_currency_id or self.env.company.currency_id).is_zero(x.amount_residual)
+                and not (x.currency_id or (x.company_currency_id or self.env.company.currency_id)).is_zero(
+                    x.amount_residual_currency
+                )
             )
         )
         need_amount_residual_currency_adjustment.amount_residual_currency = 0.0
         need_amount_residual_currency_adjustment.reconciled = True
+
+    def _prepare_exchange_difference_move_vals(self, amounts_list, company=None, exchange_date=None, **kwargs):
+        res = super()._prepare_exchange_difference_move_vals(
+            amounts_list, company=company, exchange_date=exchange_date, **kwargs
+        )
+
+        if not res:
+            return res
+        payment_dates = set(self.mapped("payment_id.date"))
+        if len(payment_dates) == 1:
+            res["move_values"]["date"] = payment_dates.pop()
+        elif exchange_date:
+            res["move_values"]["date"] = exchange_date
+        return res
